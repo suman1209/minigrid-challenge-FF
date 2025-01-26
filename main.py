@@ -102,15 +102,15 @@ def main():
 
     # Check for OpenAI API key
     api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("Please set the OPENAI_API_KEY environment variable")
+    if api_key is None:
+        if args.api_url is None:
+            raise ValueError("Please set the OPENAI_API_KEY environment variable")
+        else:
+            api_key = "placeholder"
 
     # Initialize environment
     render_mode = "human" if args.render else ("rgb_array" if args.save else None)
     env = gym.make(args.env, render_mode=render_mode)
-
-    # Initialize agent
-    agent = Agent(api_key=api_key, model=args.model, api_url=args.api_url)
 
     # Track metrics
     wins = 0
@@ -130,10 +130,13 @@ def main():
 
     # Run episodes
     for episode in range(args.episodes):
+        # Initialize agent
+        agent = Agent(api_key=api_key, model=args.model, api_url=args.api_url)
+
         if args.verbose:
             print(f"\nStarting Episode {episode + 1}")
 
-        obs, info = env.reset()
+        obs, _ = env.reset()
         mission = getattr(env.unwrapped, "mission")
         steps = 0
 
