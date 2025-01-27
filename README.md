@@ -77,7 +77,7 @@ Optional arguments:
 Each environment will be evaluated with the following command:
 
 ```bash
-python main.py --verbose --max-steps 100 --api-url http://localhost:8081/v1 --save --episodes 10 --model model_name --env target_env
+python main.py --verbose --max-steps 100 --api-url http://localhost:8081/v1 --save --episodes 10 --timeout 60 --run-id team_id --model model_name --env target_env
 ```
 
 For the submission, provide name of the model you are using.
@@ -95,9 +95,11 @@ For the submission, provide name of the model you are using.
 ## Recommended Models
 
 -   Qwen/Qwen2.5-7B-Instruct
+    -   There are variants of different sizes
 -   DeepSeek R1 distills (e.g., deepseek-ai/DeepSeek-R1-Distill-Qwen-7B)
     -   Note: This model outputs Chain of Thought by default
     -   You may need to adjust `max_tokens` when generating responses, and implement parsing function
+    -   Due to long CoTs, it might be a good idea to output multiple actions for each model's response, otherwise it will be too slow to finish an episode
 
 ## Final Notes
 

@@ -30,6 +30,9 @@ def parse_args():
         "--max-steps", type=int, default=100, help="Maximum steps per episode"
     )
     parser.add_argument(
+        "--timeout", type=int, default=60, help="Maximum time per episode (in seconds)"
+    )
+    parser.add_argument(
         "--render", action="store_true", help="Whether to render the environment"
     )
     parser.add_argument(
@@ -76,6 +79,7 @@ def save_step_data(
     step: int,
     actions: List[int],
     won: bool,
+    elapsed: float,
     rgb_array: np.ndarray,
 ):
     """Save step data and image"""
@@ -88,6 +92,7 @@ def save_step_data(
         "steps": step,
         "actions": [ACTION_MAP[action] for action in actions],
         "won": won,
+        "elapsed": elapsed,
     }
     with open(base_path / f"_metadata.json", "w") as f:
         json.dump(episode_data, f, indent=2)
@@ -139,6 +144,7 @@ def main():
         obs, _ = env.reset()
         mission = getattr(env.unwrapped, "mission")
         steps = 0
+        start_time = time.time()
 
         if args.save:
             env_dir = results_dir / args.env
@@ -151,7 +157,7 @@ def main():
         # Run episode
         won = False
         actions = []
-        for _ in range(args.max_steps):
+        for step_i in range(args.max_steps):
             # Get action from agent
             action = handle_state(obs, mission, agent, args.verbose)
             actions.append(action)
@@ -161,11 +167,16 @@ def main():
             if reward > 0 and terminated:
                 won = True
             steps += 1
+            elapsed = time.time() - start_time
+            if args.verbose:
+                print(f"step {step_i + 1}, elapsed: {elapsed:.2f}s")
 
             if args.save:
                 # Get RGB render for saving
                 rgb_array = env.render()
-                save_step_data(episode_dir, mission, steps, actions, won, rgb_array)
+                save_step_data(
+                    episode_dir, mission, steps, actions, won, elapsed, rgb_array
+                )
 
             obs = next_obs
 
@@ -174,6 +185,9 @@ def main():
                 time.sleep(args.delay)
 
             if terminated or truncated:
+                break
+            if elapsed > args.timeout:
+                print("timeout!")
                 break
 
         if won:
