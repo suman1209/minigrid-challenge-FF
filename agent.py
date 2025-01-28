@@ -3,6 +3,7 @@ from typing import Dict, Any, Tuple, Optional
 from minigrid.core.constants import IDX_TO_OBJECT, IDX_TO_COLOR, STATE_TO_IDX
 from collections import deque
 
+IDX_TO_STATE = {v: k for k, v in STATE_TO_IDX.items()}
 
 ACTION_MAP = {
     0: "turn left",
@@ -13,6 +14,39 @@ ACTION_MAP = {
     5: "toggle",
     6: "done",
 }
+
+
+def relative_to_absolute(agent_direction, relative_direction):
+    if agent_direction == "north":
+        if relative_direction == "left":
+            return "west"
+        elif relative_direction == "right":
+            return "east"
+        elif relative_direction == "front":
+            return "north"
+    elif agent_direction == "south":
+        if relative_direction == "left":
+            return "east"
+        elif relative_direction == "right":
+            return "west"
+        elif relative_direction == "front":
+            return "south"
+    elif agent_direction == "east":
+        if relative_direction == "left":
+            return "north"
+        elif relative_direction == "right":
+            return "south"
+        elif relative_direction == "front":
+            return "east"
+    elif agent_direction == "west":
+        if relative_direction == "left":
+            return "south"
+        elif relative_direction == "right":
+            return "north"
+        elif relative_direction == "front":
+            return "west"
+    else:
+        raise ValueError(f"Invalid agent direction: {agent_direction}")
 
 
 class Agent:
@@ -30,32 +64,33 @@ class Agent:
         self.client = OpenAI(api_key=api_key, base_url=api_url)
         self.model = model
         self.temperature = 0.0
-        self.last_actions = deque(maxlen=5)
+        self.past_states = deque(maxlen=20)
+        self.current_step = 0
 
         # System prompt to explain the task
-        self.system_prompt = """
-        You are an agent in a grid-world environment. You will receive information about:
-        1. The direction you are facing
-        2. Your current mission
-        3. Objects you can see in front of you
-        4. Whether you are touching a wall
-        4. Last taken actions
-        
-        You must choose one of these actions:
-        - turn left
-        - turn right
-        - move forward
-        - pick up
-        - drop
-        - toggle
+        self.system_prompt = """You are an agent in a grid-world environment. You will receive information about:
+1. The direction you are facing
+2. Your current mission
+3. Objects you can see in front of you
+4. Whether you are touching a wall
+4. Past states and taken actions
 
-        Additional information:
-        - You cannot step on objects, you need to avoid them
-        - If you've been doing the same action multiple times, try something else
-        - Turning left or right will change your field of view
-        
-        Respond ONLY with the action you want to take, exactly as written above.
-        """
+You must choose one of these actions:
+- turn left (rotates counterclockwise)
+- turn right (rotates clockwise)
+- move forward
+- pick up
+- drop
+- toggle
+
+Additional information:
+- You cannot step on objects, you need to avoid them
+- Turning left or right will change your field of view
+- Locked doors can be toggled with a key, if they are one cell in front of you
+- Keys can be picked up and dropped
+- Box can contain a key or another object
+- Box can be toggled to reveal its content if it's one cell in front of you
+- If you don't see target object, move around to find it"""
 
     def parse_observation(self, obs: Dict[str, Any], mission: str) -> str:
         """
@@ -69,7 +104,7 @@ class Agent:
             Formatted prompt string
         """
         # Convert direction number to cardinal direction
-        directions = ["right", "down", "left", "up"]
+        directions = ["east", "south", "west", "north"]
         direction = directions[obs["direction"]]
 
         # Parse the grid to find visible objects
@@ -81,39 +116,51 @@ class Agent:
             for y in range(7):
                 obj_id, color_id, door_state = grid[x, y]
                 if obj_id > 2:
-                    msg = f"\n * {IDX_TO_COLOR[color_id]} {IDX_TO_OBJECT[obj_id]} -"
+                    obj_state = ""
+                    if obj_id == 4:  # it's a door
+                        obj_state = f"{IDX_TO_STATE[door_state]} "
+                    msg = f"\n * {obj_state}{IDX_TO_COLOR[color_id]} {IDX_TO_OBJECT[obj_id]} -"
                     if x < 3:
-                        msg += f" {3 - x} cells to the left;"
+                        msg += f" {3 - x} cells to the {relative_to_absolute(direction, 'left')};"
                     elif x > 3:
-                        msg += f" {x - 3} cells to the right;"
+                        msg += f" {x - 3} cells to the {relative_to_absolute(direction, 'right')};"
                     if y < 6:
-                        msg += f" {6 - y} cells in front of you;"
+                        msg += f" {6 - y} cells to the {relative_to_absolute(direction, 'front')};"
                     visible_objects.append(msg)
+        actionable_object = "none"
+        if grid[3, 5, 0] > 2:
+            actionable_object = (
+                f"{IDX_TO_COLOR[grid[3, 6, 1]]} {IDX_TO_OBJECT[grid[3, 6, 0]]}"
+            )
 
         walls = []
         if grid[2, 6, 0] == 2:
-            walls.append("left")
+            walls.append(relative_to_absolute(direction, "left"))
         if grid[4, 6, 0] == 2:
-            walls.append("right")
+            walls.append(relative_to_absolute(direction, "right"))
         if grid[3, 5, 0] == 2:
-            walls.append("front")
+            walls.append(relative_to_absolute(direction, "front"))
         if len(walls) == 0:
             walls.append("none")
 
         # Create the prompt
-        prompt = f"""
-        Mission: {mission}
-        
-        Current state:
-        - You are facing '{direction}'
-        - Objects in front of you: {', '.join(visible_objects) if visible_objects else 'none'}
-        - Touching walls: {walls}
-        - Last action: {list(self.last_actions) if self.last_actions else 'none'}
-        
-        What action should you take?
-        """
+        past_states_str = "\n".join(self.past_states)
+        current_state = f"""[Step {self.current_step}]
+- Facing '{direction}'
+- Visible objects: {', '.join(visible_objects) if visible_objects else 'none'}
+- Actionable object: {actionable_object}
+- Touching walls: {walls}"""
+        prompt = f"""Mission: {mission}
 
-        return prompt
+Past states:
+{past_states_str}
+
+Current state:
+{current_state}
+
+What action should you take? Respond ONLY with the action you want to take, exactly as written above."""
+
+        return prompt, current_state
 
     def get_action(self, obs: Dict[str, Any], mission: str, verbose: bool) -> int:
         """
@@ -126,15 +173,17 @@ class Agent:
         Returns:
             Action index
         """
-        prompt = f"{self.system_prompt}\n\n{self.parse_observation(obs, mission)}"
+        prompt, current_state = self.parse_observation(obs, mission)
+        final_prompt = f"{self.system_prompt}\n\n{prompt}"
+
         if verbose:
             print("==================================")
-            print("Prompt:", prompt)
+            print("final_prompt:", final_prompt)
 
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": final_prompt},
             ],
             temperature=self.temperature,
             max_tokens=10,
@@ -150,7 +199,6 @@ class Agent:
         action_idx = None
         for idx, text in ACTION_MAP.items():
             if text == action_text:
-                self.last_actions.append(action_text)
                 action_idx = idx
                 break
 
@@ -159,6 +207,13 @@ class Agent:
                 f"Warning: Invalid action '{action_text}', defaulting to move forward"
             )
             action_idx = 2  # Default to move forward
+            action_text = ACTION_MAP[2]
+
+        self.past_states += [
+            current_state,
+            f"Action taken at step {self.current_step}: {action_text}",
+        ]
+        self.current_step += 1
 
         return action_idx
 

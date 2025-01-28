@@ -4,8 +4,8 @@ Your task is to create an agent that can solve different grid-world environments
 
 ### Evaluation Environments (Provided)
 
--   BabyAI-KeyInBox-v0
 -   BabyAI-GoToLocalS8N3-v0
+-   BabyAI-KeyInBox-v0
 -   BabyAI-KeyCorridorS6R3-v0
 -   BabyAI-PutNextS5N2-v0
 -   BabyAI-SynthS5R2-v0
@@ -87,10 +87,10 @@ For the submission, provide name of the model you are using.
 1. Use `play.py` to manually test and understand the environments
 2. You can test your agent/prompting with OpenAI models first, but remember that local models won't be as capable
 3. Consider these improvements for your agent:
-    - Add message history
-    - Implement memory of events and objects
+    - Implement long-term memory of events and objects
     - Add chain of thought reasoning
-    - Adjust sampling parameters
+    - Add more information about the environement in the prompt
+    - Improve 'perception' - the way the information about objects and walls is presented
 
 ## Recommended Models
 
