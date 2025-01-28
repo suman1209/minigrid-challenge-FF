@@ -77,7 +77,7 @@ Optional arguments:
 Each environment will be evaluated with the following command:
 
 ```bash
-python main.py --verbose --max-steps 100 --api-url http://localhost:8081/v1 --save --episodes 10 --timeout 60 --run-id team_id --model model_name --env target_env
+python main.py --verbose --max-steps 100 --api-url http://localhost:8081/v1 --save --episodes 10 --timeout 60 --run-id team_id --model <model_name> --env <target_env>
 ```
 
 For the submission, provide name of the model you are using.
