@@ -141,7 +141,7 @@ def main():
         if args.verbose:
             print(f"\nStarting Episode {episode + 1}")
 
-        obs, _ = env.reset()
+        obs, _ = env.reset(seed=episode)
         mission = getattr(env.unwrapped, "mission")
         steps = 0
         start_time = time.time()
