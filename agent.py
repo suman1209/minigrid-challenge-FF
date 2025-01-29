@@ -64,33 +64,51 @@ class Agent:
         self.client = OpenAI(api_key=api_key, base_url=api_url)
         self.model = model
         self.temperature = 0.0
-        self.past_states = deque(maxlen=20)
+        self.past_states = deque(maxlen=2)  # [state, response]
         self.current_step = 0
 
         # System prompt to explain the task
-        self.system_prompt = """You are an agent in a grid-world environment. You will receive information about:
-1. The direction you are facing
-2. Your current mission
-3. Objects you can see in front of you
-4. Whether you are touching a wall
-4. Past states and taken actions
+
+    def find_last_action(self, action_text, action_map):
+        action_idx = None
+        last_position = -1
+        found_action = None
+
+        # Check each possible action
+        for idx, text in action_map.items():
+            # Find the last position of this action in the text
+            position = action_text.rfind(text)
+
+            # If found and it's later than our previous match
+            if position != -1 and position > last_position:
+                last_position = position
+                action_idx = idx
+                found_action = text
+
+        return action_idx, found_action
+
+    def get_system_prompt(self, direction):
+        return f"""You are an agent in a grid-world environment. The goal is to navigate the world and interact with objects to complete the mission.
 
 You must choose one of these actions:
-- turn left (rotates counterclockwise)
-- turn right (rotates clockwise)
-- move forward
+- turn left (rotates towards {relative_to_absolute(direction, 'left')})
+- turn right (rotates towards {relative_to_absolute(direction, 'right')})
+- move forward (moves towards {direction})
 - pick up
 - drop
-- toggle
+- toggle (opens a door with a key or opens a box)
 
 Additional information:
-- You cannot step on objects, you need to avoid them
-- Turning left or right will change your field of view
+- You cannot step on objects, you need to go around them
 - Locked doors can be toggled with a key, if they are one cell in front of you
-- Keys can be picked up and dropped
+- Keys can be picked up
 - Box can contain a key or another object
 - Box can be toggled to reveal its content if it's one cell in front of you
-- If you don't see target object, move around to find it"""
+- You can pick up and toggle only actionable objects (exactly one cell in front of you)
+- If you don't see target object, explore the world to find it.
+- If you turn right or left, you may lose object from your sight, so you need to remember where it was.
+
+What action should you take? Respond ONLY with the action you want to take, exactly as written above."""
 
     def parse_observation(self, obs: Dict[str, Any], mission: str) -> str:
         """
@@ -119,27 +137,37 @@ Additional information:
                     obj_state = ""
                     if obj_id == 4:  # it's a door
                         obj_state = f"{IDX_TO_STATE[door_state]} "
-                    msg = f"\n * {obj_state}{IDX_TO_COLOR[color_id]} {IDX_TO_OBJECT[obj_id]} -"
+                    obj_repr = f"\n * {obj_state}{IDX_TO_COLOR[color_id]} {IDX_TO_OBJECT[obj_id]} -"
+                    obj_pos = ""
                     if x < 3:
-                        msg += f" {3 - x} cells to the {relative_to_absolute(direction, 'left')};"
+                        obj_pos += f" {3 - x} cells to the left"
                     elif x > 3:
-                        msg += f" {x - 3} cells to the {relative_to_absolute(direction, 'right')};"
+                        obj_pos += f" {x - 3} cells to the right"
                     if y < 6:
-                        msg += f" {6 - y} cells to the {relative_to_absolute(direction, 'front')};"
-                    visible_objects.append(msg)
+                        if obj_pos != "":
+                            obj_pos += " AND"
+                        obj_pos += f" {6 - y} cells in the front"
+                    obj_repr = obj_repr + obj_pos
+                    visible_objects.append(obj_repr)
+
         actionable_object = "none"
         if grid[3, 5, 0] > 2:
             actionable_object = (
                 f"{IDX_TO_COLOR[grid[3, 6, 1]]} {IDX_TO_OBJECT[grid[3, 6, 0]]}"
             )
+        holding_object = "none"
+        if grid[3, 6, 0] > 2:
+            holding_object = (
+                f"{IDX_TO_COLOR[grid[3, 6, 1]]} {IDX_TO_OBJECT[grid[3, 6, 0]]}"
+            )
 
         walls = []
         if grid[2, 6, 0] == 2:
-            walls.append(relative_to_absolute(direction, "left"))
+            walls.append(f"left ({relative_to_absolute(direction, 'left')})")
         if grid[4, 6, 0] == 2:
-            walls.append(relative_to_absolute(direction, "right"))
+            walls.append(f"right ({relative_to_absolute(direction, 'right')})")
         if grid[3, 5, 0] == 2:
-            walls.append(relative_to_absolute(direction, "front"))
+            walls.append(f"front ({relative_to_absolute(direction, 'front')})")
         if len(walls) == 0:
             walls.append("none")
 
@@ -147,20 +175,17 @@ Additional information:
         past_states_str = "\n".join(self.past_states)
         current_state = f"""[Step {self.current_step}]
 - Facing '{direction}'
+- Touching walls: {walls}
 - Visible objects: {', '.join(visible_objects) if visible_objects else 'none'}
 - Actionable object: {actionable_object}
-- Touching walls: {walls}"""
-        prompt = f"""Mission: {mission}
-
-Past states:
+- Holding object: {holding_object}
+- Mission: {mission}"""
+        prompt = f"""Recent states:
 {past_states_str}
-
-Current state:
 {current_state}
+Response:"""
 
-What action should you take? Respond ONLY with the action you want to take, exactly as written above."""
-
-        return prompt, current_state
+        return prompt, current_state, direction
 
     def get_action(self, obs: Dict[str, Any], mission: str, verbose: bool) -> int:
         """
@@ -173,12 +198,8 @@ What action should you take? Respond ONLY with the action you want to take, exac
         Returns:
             Action index
         """
-        prompt, current_state = self.parse_observation(obs, mission)
-        final_prompt = f"{self.system_prompt}\n\n{prompt}"
-
-        if verbose:
-            print("==================================")
-            print("final_prompt:", final_prompt)
+        prompt, current_state, direction = self.parse_observation(obs, mission)
+        final_prompt = f"{self.get_system_prompt(direction)}\n\n{prompt}"
 
         response = self.client.chat.completions.create(
             model=self.model,
@@ -186,21 +207,16 @@ What action should you take? Respond ONLY with the action you want to take, exac
                 {"role": "user", "content": final_prompt},
             ],
             temperature=self.temperature,
-            max_tokens=10,
+            max_tokens=8000,
         )
         if verbose:
-            print("Response:", response.choices[0].message.content)
+            print("==================================")
+            print("final_prompt:\n", final_prompt)
+            print("response:\n", response.choices[0].message.content)
 
-        action_text = response.choices[0].message.content.strip().lower()
-        if "\n" in action_text:
-            action_text = action_text.split("\n")[0]
+        response = response.choices[0].message.content.strip().lower()
 
-        # Convert action text to action index
-        action_idx = None
-        for idx, text in ACTION_MAP.items():
-            if text == action_text:
-                action_idx = idx
-                break
+        action_idx, action_text = self.find_last_action(response, ACTION_MAP)
 
         if action_idx is None:
             print(
@@ -211,11 +227,18 @@ What action should you take? Respond ONLY with the action you want to take, exac
 
         self.past_states += [
             current_state,
-            f"Action taken at step {self.current_step}: {action_text}",
+            f"Response: {action_text}",
         ]
         self.current_step += 1
 
-        return action_idx
+        # dict with metadata to log during eval
+        metadata = {
+            "final_prompt": final_prompt,
+            "response": response,
+            "action_text": action_text,
+        }
+
+        return action_idx, metadata
 
 
 def handle_state(
@@ -234,9 +257,9 @@ def handle_state(
         Action index to take
     """
 
-    action = agent.get_action(obs, mission, verbose)
+    action, metadata = agent.get_action(obs, mission, verbose)
 
     if verbose:
         print("Chosen Action:", ACTION_MAP[action])
 
-    return action
+    return action, metadata

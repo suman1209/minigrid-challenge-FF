@@ -26,6 +26,7 @@ def parse_args():
     parser.add_argument(
         "--episodes", type=int, default=1, help="Number of episodes to run"
     )
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--max-steps", type=int, default=100, help="Maximum steps per episode"
     )
@@ -81,6 +82,7 @@ def save_step_data(
     won: bool,
     elapsed: float,
     rgb_array: np.ndarray,
+    metadata: dict,
 ):
     """Save step data and image"""
     # Save image
@@ -94,13 +96,20 @@ def save_step_data(
         "won": won,
         "elapsed": elapsed,
     }
-    with open(base_path / f"_metadata.json", "w") as f:
+    with open(base_path / f"state.json", "w") as f:
         json.dump(episode_data, f, indent=2)
+
+    metadata_path = base_path / f"metadata/{step}.json"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(metadata_path, "w") as f:
+        json.dump(metadata, f, indent=2)
 
 
 def main():
     # Parse command line arguments
     args = parse_args()
+
+    print(f"--- Running {args.episodes} episodes in {args.env}...")
 
     if args.render and args.save:
         raise ValueError("Cannot save frames and render at the same time!")
@@ -141,7 +150,7 @@ def main():
         if args.verbose:
             print(f"\nStarting Episode {episode + 1}")
 
-        obs, _ = env.reset(seed=episode)
+        obs, _ = env.reset(seed=episode + args.seed)
         mission = getattr(env.unwrapped, "mission")
         steps = 0
         start_time = time.time()
@@ -159,7 +168,7 @@ def main():
         actions = []
         for step_i in range(args.max_steps):
             # Get action from agent
-            action = handle_state(obs, mission, agent, args.verbose)
+            action, metadata = handle_state(obs, mission, agent, args.verbose)
             actions.append(action)
 
             # Take action in environment
@@ -175,7 +184,14 @@ def main():
                 # Get RGB render for saving
                 rgb_array = env.render()
                 save_step_data(
-                    episode_dir, mission, steps, actions, won, elapsed, rgb_array
+                    episode_dir,
+                    mission,
+                    steps,
+                    actions,
+                    won,
+                    elapsed,
+                    rgb_array,
+                    metadata,
                 )
 
             obs = next_obs
@@ -193,10 +209,9 @@ def main():
         if won:
             wins += 1
 
-        if args.verbose:
-            print(f"Episode {episode + 1} finished:")
-            print(f"- Steps: {steps}")
-            print(f"- Wins: {wins}/{episode + 1}")
+        print(f"Episode {episode + 1} finished:")
+        print(f"- Steps: {steps}")
+        print(f"- Wins: {wins}/{episode + 1}")
 
     # Save final results
     if args.save:
