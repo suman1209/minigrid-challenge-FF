@@ -99,6 +99,7 @@ You must choose one of these actions:
 - toggle (opens a door with a key or opens a box)
 
 Additional information:
+- You can face FOUR different directions: north, south, east, west
 - You cannot step on objects, you need to go around them
 - Locked doors can be toggled with a key, if they are one cell in front of you
 - Keys can be picked up
@@ -132,6 +133,8 @@ What action should you take? Respond ONLY with the action you want to take, exac
         # Convert object types to descriptions
         for x in range(7):
             for y in range(7):
+                if x == 3 and y == 6:
+                    continue  # skip for agent position - it's the object being held
                 obj_id, color_id, door_state = grid[x, y]
                 if obj_id > 2:
                     obj_state = ""
@@ -175,7 +178,9 @@ What action should you take? Respond ONLY with the action you want to take, exac
         past_states_str = "\n".join(self.past_states)
         current_state = f"""[Step {self.current_step}]
 - Facing '{direction}'
-- Touching walls: {walls}
+- Wall on the left: {"yes" if grid[2, 6, 0] == 2 else "no"}
+- Wall on the right: {"yes" if grid[4, 6, 0] == 2 else "no"}
+- Wall in front (blocking): {"yes" if grid[3, 5, 0] == 2 else "no"}
 - Visible objects: {', '.join(visible_objects) if visible_objects else 'none'}
 - Actionable object: {actionable_object}
 - Holding object: {holding_object}
@@ -207,7 +212,7 @@ Response:"""
                 {"role": "user", "content": final_prompt},
             ],
             temperature=self.temperature,
-            max_tokens=8000,
+            max_tokens=1000,
         )
         if verbose:
             print("==================================")

@@ -48,7 +48,7 @@ pip install minigrid openai vllm
 3. Request an A40 GPU:
 
 ```bash
-salloc --gpus-per-node=1 --partition=a40 --time=4:00:00
+salloc --gpus-per-node=1 --partition=a40 --time=2:00:00
 ```
 
 4. Start the model server (example with Qwen):
@@ -105,6 +105,7 @@ For the submission, provide name of the model you are using.
 -   microsoft/phi-4
 -   mistralai/Mistral-Nemo-Instruct-2407
     -   To run this model, add "--max_model_len 8000" to vllm command
+-   deepseek-ai/deepseek-coder-7b-instruct-v1.5
 
 ## Final Notes
 
