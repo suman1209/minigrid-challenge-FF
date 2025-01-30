@@ -31,7 +31,7 @@ def parse_args():
         "--max-steps", type=int, default=100, help="Maximum steps per episode"
     )
     parser.add_argument(
-        "--timeout", type=int, default=60, help="Maximum time per episode (in seconds)"
+        "--timeout", type=int, default=360, help="Maximum time per episode (in seconds)"
     )
     parser.add_argument(
         "--render", action="store_true", help="Whether to render the environment"
