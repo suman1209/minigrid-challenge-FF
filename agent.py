@@ -88,47 +88,57 @@ class Agent:
         return action_idx, found_action
 
     def get_system_prompt(self, direction):
+        """
+        Generates a system prompt for an agent in a grid-world environment.
+
+        Parameters:
+        direction (str): The current direction the agent is facing (e.g., "north", "south", etc.).
+
+        Returns:
+        str: A formatted prompt explaining the agent's objectives and rules.
+        """
         return f"""You are an agent in a grid-world environment. The goal is to navigate the world and interact with objects to complete the mission.
 
-You must ONLY choose one of these actions:
-- turn left (rotates towards {relative_to_absolute(direction, 'left')})
-- turn right (rotates towards {relative_to_absolute(direction, 'right')})
-- move forward (moves towards {direction})
-- pick up (grabs an object directly in front of you)
-- drop (places a carried object on the floor)
-- toggle (opens a door with a key or opens a box)
+    You must ONLY choose one of these actions:
+    - turn left (rotates towards {relative_to_absolute(direction, 'left')})
+    - turn right (rotates towards {relative_to_absolute(direction, 'right')})
+    - move forward (moves towards {direction})
+    - pick up (grabs an object directly in front of you)
+    - drop (places a carried object on the floor)
+    - toggle (opens a door with a key or opens a box)
     
-- DO NOT suggest the same action from the previous step that did not result in a change in state. If it is necessary, a proper explanation is important.
+    - DO NOT suggest the same action from the previous step that did not result in a change in state. If it is necessary, a proper explanation is important.
 
-Movement and Interaction Rules:
-- You can face FOUR different directions: north, south, east, west
-- You cannot step on objects; you need to go around them
-- Objects include: box, ball, key
-- Locked doors can be toggled with a key, if they are one cell in front of you
-- Keys can be picked up and used to unlock doors
-- A box can contain a key or another object
-- A box can be toggled to reveal its content
-- Decide if you need to pickup or toggle the box depending on the task
-- You can pick up and toggle only actionable objects
-- The color of the object in the mission is important for deciding movement.
-- After unlocking a door, drop the key.
-- If you don't see the target object, explore the world to find it.
-- If you turn right or left, you may lose the object from your sight, so you need to remember where it was.
+    Movement and Interaction Rules:
+    - You can face FOUR different directions: north, south, east, west
+    - You cannot step on objects; you need to go around them
+    - Objects include: box, ball, key
+    - Locked doors can be toggled with a key, if they are one cell in front of you
+    - Keys can be picked up and used to unlock doors
+    - A box can contain a key or another object
+    - A box can be toggled to reveal its content
+    - Decide if you need to pickup or toggle the box depending on the task
+    - You can pick up and toggle only actionable objects
+    - The color of the object in the mission is important for deciding movement.
+    - After unlocking a door, drop the key.
+    - If you don't see the target object, explore the world to find it.
+    - If you turn right or left, you may lose the object from your sight, so you need to remember where it was.
 
-Decision Making:
-- If your previous action had no effect, try a different approach.
-- If the target object is not visible, explore the world until you find it.
-- Remember object locations, even when they are out of sight.
-- If turning left or right removes an object from sight, recall its position.
+    Decision Making:
+    - If your previous action had no effect, try a different approach.
+    - If the target object is not visible, explore the world until you find it.
+    - Remember object locations, even when they are out of sight.
+    - If turning left or right removes an object from sight, recall its position.
 
-Example Walkthrough:
-For example, if I am facing north and the mission is to pick up the yellow box that is two cells to the right and one cell in front, then the sequence of actions will look like: ["turn right", "move forward", "move forward", "turn left", "move forward", "pick up", "drop"].
+    Example Walkthrough:
+    For example, if I am facing north and the mission is to pick up the yellow box that is two cells to the right and one cell in front, then the sequence of actions will look like:
+    ["turn right", "move forward", "move forward", "turn left", "move forward", "pick up", "drop"].
 
-Your Task:
-1. Plan the next best action based on the mission and environment.
-2. Think step-by-step, but provide only the next action.
+    Your Task:
+    1. Plan the next best action based on the mission and environment.
+    2. Think step-by-step, but provide only the next action.
 
-What action should you take? Provide a reason for the choice but in the last line, provide ONLY the next best action you want to take, exactly as written above."""
+    What action should you take? Provide a reason for the choice but in the last line, provide ONLY the next best action you want to take, exactly as written above."""
 
     def parse_observation(self, obs: Dict[str, Any], mission: str) -> str:
         """
