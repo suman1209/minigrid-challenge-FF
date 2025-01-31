@@ -66,9 +66,9 @@ class Agent:
         self.temperature = 0.0
         self.past_states = deque(maxlen=2)  # [state, response]
         self.current_step = 0
-
+        self.past_actions = []
         # System prompt to explain the task
-
+    # @todo why do we do this?
     def find_last_action(self, action_text, action_map):
         action_idx = None
         last_position = -1
@@ -97,19 +97,29 @@ You must choose one of these actions:
 - pick up
 - drop
 - toggle (opens a door with a key or opens a box)
+- DO NOT suggest the same action from the previous step that didnt result in a change in state. If it is necessary a proper explanation is important.
 
 Additional information:
 - You can face FOUR different directions: north, south, east, west
 - You cannot step on objects, you need to go around them
+- Objects are box, ball and key.
+- If it is not a box or a ball, it is a key.
+- If you see a locked door, find a box.
 - Locked doors can be toggled with a key, if they are one cell in front of you
 - Keys can be picked up
 - Box can contain a key or another object
 - Box can be toggled to reveal its content if it's one cell in front of you
+- the color of the object described in the mission is important to take into account in deciding where to move
+- After opening the door with the key, drop the key.
 - You can pick up and toggle only actionable objects (exactly one cell in front of you)
 - If you don't see target object, explore the world to find it.
 - If you turn right or left, you may lose object from your sight, so you need to remember where it was.
+- If the previous action performed didnt result in a change in state, please consider thinking of an alternative action for this step
+- If the object described in the mission is not available in the visible objects list, a random exploration until it becomes visible is very important
 
-What action should you take? Respond ONLY with the action you want to take, exactly as written above."""
+For example if i am facing north and the mission is to pickup the yellow box that is two cells to the right and 1 cells
+in front , then the sequence of actions will look like ["turn right", "move forward", "move forward", "turn left", "move forward", "pick up", "drop"]
+What action should you take? think of a sequence of steps but provide as the final answer ONLY the next best action you want to take, exactly as written above."""
 
     def parse_observation(self, obs: Dict[str, Any], mission: str) -> str:
         """
@@ -124,6 +134,7 @@ What action should you take? Respond ONLY with the action you want to take, exac
         """
         # Convert direction number to cardinal direction
         directions = ["east", "south", "west", "north"]
+        # @todo, check the observations
         direction = directions[obs["direction"]]
 
         # Parse the grid to find visible objects
@@ -136,6 +147,17 @@ What action should you take? Respond ONLY with the action you want to take, exac
                 if x == 3 and y == 6:
                     continue  # skip for agent position - it's the object being held
                 obj_id, color_id, door_state = grid[x, y]
+                """
+                COLOR_TO_IDX = {"red": 0, "green": 1, "blue": 2, "purple": 3, "yellow": 4, "grey": 5}
+                OBJECT_TO_IDX = {"unseen": 0, "empty": 1, "wall": 2, "floor": 3, "door": 4, "key": 5, "ball": 6, 
+                                 "box": 7, "goal": 8, "lava": 9, "agent": 10}
+
+                STATE_TO_IDX = { 
+                                "open": 0, 
+                                "closed": 1,
+                                "locked": 2
+                                }
+                """
                 if obj_id > 2:
                     obj_state = ""
                     if obj_id == 4:  # it's a door
@@ -164,13 +186,22 @@ What action should you take? Respond ONLY with the action you want to take, exac
                 f"{IDX_TO_COLOR[grid[3, 6, 1]]} {IDX_TO_OBJECT[grid[3, 6, 0]]}"
             )
 
-        walls = []
-        if grid[2, 6, 0] == 2:
-            walls.append(f"left ({relative_to_absolute(direction, 'left')})")
-        if grid[4, 6, 0] == 2:
-            walls.append(f"right ({relative_to_absolute(direction, 'right')})")
-        if grid[3, 5, 0] == 2:
-            walls.append(f"front ({relative_to_absolute(direction, 'front')})")
+        walls = [0, 0, 0]
+        if True:
+            for i in range(3):
+                if grid[i, 6, 0] == 2:
+                    walls[0] = 3 - i
+                    break
+        if True:
+            for i in range(4, 7):
+                if grid[i, 6, 0] == 2:
+                    walls[1] =  i - 4
+                    break
+        if True:
+            for i in range(5, -1, -1):
+                if grid[3, i, 0] == 2:
+                    walls[2] = 5 - i
+                    break
         if len(walls) == 0:
             walls.append("none")
 
@@ -178,17 +209,18 @@ What action should you take? Respond ONLY with the action you want to take, exac
         past_states_str = "\n".join(self.past_states)
         current_state = f"""[Step {self.current_step}]
 - Facing '{direction}'
-- Wall on the left: {"yes" if grid[2, 6, 0] == 2 else "no"}
-- Wall on the right: {"yes" if grid[4, 6, 0] == 2 else "no"}
-- Wall in front (blocking): {"yes" if grid[3, 5, 0] == 2 else "no"}
+- Wall on the left: {str(walls[0]) + " cells further" if walls[0] > 0 else "no"}
+- Wall on the right: {str(walls[1]) + " cells further" if walls[1] > 0 else "no"}
+- Wall in front: {str(walls[2]) + " cells further" if walls[2] > 0 else "no"}
 - Visible objects: {', '.join(visible_objects) if visible_objects else 'none'}
 - Actionable object: {actionable_object}
 - Holding object: {holding_object}
 - Mission: {mission}"""
-        prompt = f"""Recent states:
+        prompt = f"""Below is the actions taken and the observations from the previous steps, please consider what action
+        was taken previously and what the response was in determining the next best action:
 {past_states_str}
 {current_state}
-Response:"""
+Action taken: {self.past_actions[-2:]}"""
 
         return prompt, current_state, direction
 
@@ -205,7 +237,6 @@ Response:"""
         """
         prompt, current_state, direction = self.parse_observation(obs, mission)
         final_prompt = f"{self.get_system_prompt(direction)}\n\n{prompt}"
-
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -222,11 +253,12 @@ Response:"""
         response = response.choices[0].message.content.strip().lower()
 
         action_idx, action_text = self.find_last_action(response, ACTION_MAP)
-
+        self.past_actions.append(action_text)
         if action_idx is None:
             print(
                 f"Warning: Invalid action '{action_text}', defaulting to move forward"
             )
+            print(action_idx, action_text, response)
             action_idx = 2  # Default to move forward
             action_text = ACTION_MAP[2]
 
